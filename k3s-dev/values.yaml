@@ -1,0 +1,97 @@
+replicaCount: 1
+# Default values for yaml.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+#///////////////////////////WEB SERVICE////////////////////////
+web:
+  httpPrefix: Host(
+  httpHost: -traefik.seb-cours-datascientest.cloudns.eu
+  httpSufix: )
+  replicaCount: 1
+
+  image:
+    repository: sebdevops06/traefik:latest
+    pullPolicy: Always
+    # Overrides the image tag whose default is the chart appVersion.
+    tag: "latest"
+
+  imagePullSecrets:
+    name: regcred # Add image pull secret to pull kubernetes image from gitlab private registry (ajouté par Ilyess)
+
+  service:
+    type: NodePort
+    port: 8000
+    targetPort: 8000
+
+  #    secretName: fastapi-secret
+  #    hosts: traefik.seb-cours-datascientest.cloudns.eu
+  env:
+    database-url:
+      postgresql://fastapi_traefik:fastapi_traefik@{{ .Release.Namespace
+      }}-db:5432/fastapi_traefik
+#///////////////////////////DB///////////////////////////////////////
+db:
+  replicaCount: 1
+
+  image:
+    repository: postgres:15-alpine
+    pullPolicy: Always
+    # Overrides the image tag whose default is the chart appVersion.
+    tag: "latest"
+
+  imagePullSecrets:
+    - name: regcred # Add image pull secret to pull kubernetes image from gitlab private registry (ajouté par Ilyess)
+
+  service:
+    type: ClusterIP
+    port: 5432
+    targetPort: 5432
+
+  volume:
+    hostPath: /mnt/data
+    mountPath: /var/lib/postgresql/data/
+
+  env:
+    POSTGRES_DB: fastapi_traefik
+    POSTGRES_PASSWORD: fastapi_traefik
+    POSTGRES_USER: fastapi_traefik
+
+#///////////////////////////traefik SERVICE////////////////////////
+traefik:
+  replicaCount: 1
+  strategy: Recreate
+
+  image:
+    repository: traefik:v2.9.6
+    pullPolicy: Always
+    # Overrides the image tag whose default is the chart appVersion.
+    tag: "latest"
+
+  imagePullSecrets:
+    - name: regcred # Add image pull secret to pull kubernetes image from gitlab private registry (ajouté par Ilyess)
+
+  service:
+    type: NodePort
+    port: 8081
+    targetPort: 8080
+
+  volume:
+    hostPath: /mnt/data
+    mountPath: /etc/traefik/traefik.toml
+    key: traefik.dev.toml
+    subPath: traefik.toml
+    #////////////////////////////Ingress/////////////////////////
+ingress:
+  className: traefik
+  annotations:
+    {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  rules:
+    host: traefik.seb-cours-datascientest.cloudns.eu
+    paths:
+      path: /
+      pathType: Prefix
+    port: 8000
+  #  tls:
