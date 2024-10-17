@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Namespace }}-ingress
+  #namespace: yaml
+  annotations:
+    #cert-manager.io/cluster-issuer: letsencrypt-prod
+    #helm.sh/hook: post-install
+spec:
+  ingressClassName: {{ .Values.ingress.className}}
+ # tls:
+ #  - secretName: {{.Release.Namespace }}-jenkins-secret
+ #     hosts:
+ #       - {{.Release.Namespace }}-jenkins.seb-cours-datascientest.cloudns.eu
+  rules:
+  - host: {{ .Release.Namespace }}-{{ .Values.ingress.rules.host}}
+    http:
+      paths:
+        - path: {{ .Values.ingress.rules.paths.path}}
+          pathType: {{ .Values.ingress.rules.paths.pathType}}
+          backend:
+             service:
+              name: {{ .Release.Namespace }}-web
+              port:
+                number: {{ .Values.ingress.rules.port}}

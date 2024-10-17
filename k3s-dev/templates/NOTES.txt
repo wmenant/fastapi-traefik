@@ -1,0 +1,6 @@
+1. Get the application URL by running these commands:
+{{- if .Values.traefik.service.type }}
+  export NODE_PORT=$(sudo kubectl get svc -n {{ .Release.Namespace }}  {{ .Release.Namespace }}-traefik -o=jsonpath='{.spec.ports[?(@.port==8081)].nodePort}')
+  echo http://{{ .Release.Namespace }}{{.Values.web.httpHost}}:$NODE_PORT  
+  Web service: http://{{ .Release.Namespace }}{{.Values.web.httpHost}}
+{{- end }}
