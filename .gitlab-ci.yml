@@ -1,0 +1,123 @@
+variables:
+  KUBE_NAMESPACE_dev: dev
+  IP_DEV: 13.38.91.91 #Remplacer l'IP de la VM
+
+image:
+  name: "python:3.11-alpine"
+  entrypoint: ["/bin/sh", "-c"]
+
+stages:
+  - test
+  - build_app
+  - run_app
+  - push_app
+  - deploy_dev_app
+  - push_gitops
+# test:
+#   stage: test
+#   image: python:3.11-alpine
+#   #before_script:
+#   # Show docker daemon info (optional, good for debugging)
+#   # - sudo apt install python3-pip -y
+#   script:
+#     - sudo apt-get install -y libpq-dev python3-pip
+#     - python3 -m venv .venv
+#     - source .venv/bin/activate
+#     - pip install -r requirements.txt
+#     - cd exempleImage/
+#     - python3 -m pytest
+
+###################################################################################################################################################################################################################
+###################################################################################################################################################################################################################
+###################################################################################################################################################################################################################
+
+build_app:
+  stage: build_app
+  script:
+    - cd exempleImage/
+    # Build the container image
+    - docker build -t "$CI_REGISTRY_IMAGE/app:latest" .
+    # Tag the container image from latest to the commit ref
+    - docker tag "$CI_REGISTRY_IMAGE/app:latest"
+      "$CI_REGISTRY_IMAGE/app:$CI_COMMIT_SHORT_SHA"
+    - cd ..
+
+run_app:
+  stage: run_app
+  script:
+    # Build the container image
+    - docker run -d -p 8000:8000 --name fastapi "$CI_REGISTRY_IMAGE/app:latest"
+    - sleep 10
+    - curl localhost
+    - docker stop fastapi
+    - docker rm fastapi
+
+push_app:
+  stage: push_app
+  before_script:
+    - docker info
+    # Login to the Gitlab Container registry
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD"
+      "$CI_REGISTRY"
+  script:
+    # Push the container image
+    - docker push "$CI_REGISTRY_IMAGE/app:$CI_COMMIT_SHORT_SHA"
+    # If we are building a tag, push the `latest` container image tag too
+    - if [ ! -z "$CI_COMMIT_TAG" ]; then docker push
+      "$CI_REGISTRY_IMAGE/app:latest"; fi
+
+stop_dev_app:
+  stage: deploy_dev_app
+  variables:
+    NAMESPACE: dev
+  when: manual
+  # Don't stop the "review" for master branch or tags,
+  # it is only for branches (so PRs (most of the time))
+  environment:
+    name: dev-$CI_BUILD_REF_NAME
+    action: stop
+  script:
+    - sudo helm uninstall app -n $NAMESPACE
+
+deploy_dev_app:
+  # Use the official docker image.
+  image: docker:latest
+  environment:
+    name: dev-$CI_BUILD_REF_NAME
+    url: http://$IP_DEV:8000
+    on_stop: stop_dev_app
+  stage: deploy_dev_app
+  variables:
+    NAMESPACE: dev
+
+  services:
+    - docker:dind
+  # Default branch leaves tag empty (= latest tag)
+  # All other branches are tagged with the escaped branch name (commit ref slug)
+  script:
+    - rm -Rf .kube
+    - mkdir .kube
+    - ls
+    - echo $CI_REGISTRY_IMAGE
+    - cat $KUBE_CONFIG > .kube/config
+    - cp k3s-dev/values.yaml values.yml
+    - cat values.yml
+    - sudo helm upgrade --install app k3s-dev/ --values=values.yml --namespace
+      $NAMESPACE --set web.image.repository="$CI_REGISTRY_IMAGE/app" --set
+      web.image.tag="$CI_COMMIT_SHORT_SHA"
+
+deploy_prod:
+  stage: push_gitops
+  when: manual
+  # Don't stop the "review" for master branch or tags,
+  # it is only for branches (so PRs (most of the time))
+  script:
+    - git clone git@gitlab.com:sept23_continue_devops_fastapi_traefik/gitops.git
+    - cd gitops/
+    - cat values.yaml
+    - sed -i "s+tag.*+tag:$ {CI_COMMIT_SHA}+g" values.yaml
+    - git config --global user.name "Pipeline"
+    - git config --global user.email "test@toto.fr"
+    - git add -A
+    - git commit -m "mis à jour de l'image avec le tag ${CI_COMMIT_SHA}"
+    - git push origin main
