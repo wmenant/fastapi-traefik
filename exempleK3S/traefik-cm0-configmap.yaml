@@ -1,0 +1,28 @@
+apiVersion: v1
+data:
+  traefik.dev.toml: |
+    # listen on port 80
+    [entryPoints]
+      [entryPoints.web]
+        address = ":80"
+
+    # Traefik dashboard over http
+    [api]
+    insecure = true
+
+    [log]
+    level = "DEBUG"
+
+    [accessLog]
+
+    # containers are not discovered automatically
+    [providers]
+      [providers.docker]
+        exposedByDefault = false
+kind: ConfigMap
+metadata:
+  annotations:
+   # use-subpath: "true"
+  labels:
+    io.kompose.service: traefik
+  name: traefik-cm0

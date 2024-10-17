@@ -1,0 +1,32 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress
+  #namespace: yaml
+  annotations:
+    #cert-manager.io/cluster-issuer: letsencrypt-prod
+    #helm.sh/hook: post-install
+spec:
+  ingressClassName: traefik
+  # tls:
+  #  - secretName: {{.Release.Namespace }}-jenkins-secret
+  #     hosts:
+  #       - {{.Release.Namespace }}-jenkins.seb-cours-datascientest.cloudns.eu
+  rules:
+    - host: dev-traefik.seb-cours-datascientest.cloudns.eu
+      http:
+        paths:
+          - path: /dashboard
+            pathType: Prefix
+            backend:
+              service:
+                name: traefik
+                port:
+                  number: 8081
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 8000

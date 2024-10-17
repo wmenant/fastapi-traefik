@@ -1,0 +1,243 @@
+apiVersion: v1
+data:
+  .gitignore: |
+    __pycache__
+    test.db
+  Dockerfile: |
+    # pull the official docker image
+    FROM python:3.11.1-slim
+
+    # set work directory
+    WORKDIR /app
+
+    # set env variables
+    ENV PYTHONDONTWRITEBYTECODE 1
+    ENV PYTHONUNBUFFERED 1
+
+    # install dependencies
+    COPY requirements.txt .
+    RUN pip install -r requirements.txt
+
+    # copy project
+    COPY . .
+  Dockerfile.prod: |
+    FROM tiangolo/uvicorn-gunicorn:python3.11-slim
+
+    RUN apt-get update && apt-get install -y netcat
+
+    COPY requirements.txt .
+    RUN pip install -r requirements.txt
+
+    COPY . .
+  Dockerfile.traefik: |
+    FROM traefik:v2.9.6
+
+    COPY ./traefik.prod.toml ./etc/traefik/traefik.toml
+  LICENSE: |
+    MIT License
+
+    Copyright (c) 2023 DataScientest
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+  README.md: |
+    # Dockerizing FastAPI with Postgres, Uvicorn, and Traefik
+
+    ### Development
+
+    Build the images and spin up the containers:
+
+    ```sh
+    $ docker-compose up -d --build
+    ```
+
+    Test it out:
+
+    1. [http://fastapi.localhost:8008/](http://fastapi.localhost:8008/)
+    1. [http://fastapi.localhost:8081/](http://fastapi.localhost:8081/)
+
+    ### Production
+
+    Update the domain in *docker-compose.prod.yml*, and add your email to *traefik.prod.toml*.
+
+    Build the images and run the containers:
+
+    ```sh
+    $ docker-compose -f docker-compose.prod.yml up -d --build
+    ```
+  docker-compose.prod.yml: |
+    version: '3.8'
+
+    services:
+      web:
+        build:
+          context: .
+          dockerfile: Dockerfile.prod
+        expose:
+          - 80
+        environment:
+          - DATABASE_URL=postgresql://fastapi_traefik_prod:fastapi_traefik_prod@db:5432/fastapi_traefik_prod
+        depends_on:
+          - db
+        labels:
+          - "traefik.enable=true"
+          - "traefik.http.routers.fastapi.rule=Host(`fastapi-traefik.your-domain.com`)"
+          - "traefik.http.routers.fastapi.tls=true"
+          - "traefik.http.routers.fastapi.tls.certresolver=letsencrypt"
+      db:
+        image: postgres:15-alpine
+        volumes:
+          - postgres_data_prod:/var/lib/postgresql/data/
+        expose:
+          - 5432
+        environment:
+          - POSTGRES_USER=fastapi_traefik_prod
+          - POSTGRES_PASSWORD=fastapi_traefik_prod
+          - POSTGRES_DB=fastapi_traefik_prod
+      traefik:
+        build:
+          context: .
+          dockerfile: Dockerfile.traefik
+        ports:
+          - 80:80
+          - 443:443
+        volumes:
+          - "/var/run/docker.sock:/var/run/docker.sock:ro"
+          - "./traefik-public-certificates:/certificates"
+        labels:
+          - "traefik.enable=true"
+          - "traefik.http.routers.dashboard.rule=Host(`dashboard-fastapi-traefik.your-domain.com`) && (PathPrefix(`/`)"
+          - "traefik.http.routers.dashboard.tls=true"
+          - "traefik.http.routers.dashboard.tls.certresolver=letsencrypt"
+          - "traefik.http.routers.dashboard.service=api@internal"
+          - "traefik.http.routers.dashboard.middlewares=auth"
+          - "traefik.http.middlewares.auth.basicauth.users=testuser:$$apr1$$jIKW.bdS$$eKXe4Lxjgy/rH65wP1iQe1"
+
+    volumes:
+      postgres_data_prod:
+      traefik-public-certificates:
+  docker-compose.yml: |
+    version: "3.8"
+
+    services:
+      web:
+        build: .
+        command:
+          bash -c 'while !</dev/tcp/db/5432; do sleep 1; done; uvicorn app.main:app
+          --host 0.0.0.0'
+        volumes:
+          - .:/app
+        expose:
+          - 8000
+        environment:
+          - DATABASE_URL=postgresql://fastapi_traefik:fastapi_traefik@db:5432/fastapi_traefik
+        depends_on:
+          - db
+        labels:
+          - "traefik.enable=true"
+          - "traefik.http.routers.fastapi.rule=Host(`fastapi.localhost`)"
+      db:
+        image: postgres:15-alpine
+        volumes:
+          - postgres_data:/var/lib/postgresql/data/
+        expose:
+          - 5432
+        environment:
+          - POSTGRES_USER=fastapi_traefik
+          - POSTGRES_PASSWORD=fastapi_traefik
+          - POSTGRES_DB=fastapi_traefik
+      traefik:
+        image: traefik:v2.9.6
+        ports:
+          - 8008:80
+          - 8081:8080
+        volumes:
+          - "./traefik.dev.toml:/etc/traefik/traefik.toml"
+          - "/var/run/docker.sock:/var/run/docker.sock:ro"
+
+    volumes:
+      postgres_data:
+  prestart.sh: |
+    echo "Waiting for postgres connection"
+
+    while ! nc -z db 5432; do
+        sleep 0.1
+    done
+
+    echo "PostgreSQL started"
+
+    exec "$@"
+  requirements.txt: |-
+    asyncpg==0.27.0
+    fastapi==0.89.1
+    ormar==0.12.1
+    psycopg2-binary==2.9.5
+    uvicorn==0.20.0
+    aiosqlite
+    pytest-asyncio
+  traefik.dev.toml: |
+    # listen on port 80
+    [entryPoints]
+      [entryPoints.web]
+        address = ":80"
+
+    # Traefik dashboard over http
+    [api]
+    insecure = true
+
+    [log]
+    level = "DEBUG"
+
+    [accessLog]
+
+    # containers are not discovered automatically
+    [providers]
+      [providers.docker]
+        exposedByDefault = false
+  traefik.prod.toml: |
+    [entryPoints]
+      [entryPoints.web]
+        address = ":80"
+      [entryPoints.web.http]
+        [entryPoints.web.http.redirections]
+          [entryPoints.web.http.redirections.entryPoint]
+            to = "websecure"
+            scheme = "https"
+
+      [entryPoints.websecure]
+        address = ":443"
+
+    [accessLog]
+
+    [api]
+    dashboard = true
+
+    [providers]
+      [providers.docker]
+        exposedByDefault = false
+
+    [certificatesResolvers.letsencrypt.acme]
+      email = "your@email.com"
+      storage = "/certificates/acme.json"
+      [certificatesResolvers.letsencrypt.acme.httpChallenge]
+        entryPoint = "web"
+kind: ConfigMap
+metadata:
+  labels:
+    io.kompose.service: web
+  name: web-cm0
